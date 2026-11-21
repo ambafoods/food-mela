@@ -779,7 +779,8 @@
 function apiPost(action, params, payload) {
     return new Promise(function (resolve, reject) {
       var reqId = '__apiPost_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
-      var url = API_BASE_URL + '?api=' + encodeURIComponent(action) + '&via=iframe';
+      var url = API_BASE_URL + '?api=' + encodeURIComponent(action) +
+        '&via=iframe&reqId=' + encodeURIComponent(reqId);
       if (params) {
         Object.keys(params).forEach(function (k) {
           url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
@@ -807,11 +808,14 @@ function apiPost(action, params, payload) {
 
       function onMessage(event) {
         if (settled) return;
+        if (iframe.contentWindow && event.source && event.source !== iframe.contentWindow) return;
+
         var msg = event.data;
         if (typeof msg === 'string') {
           try { msg = JSON.parse(msg); } catch (e) { return; }
         }
         if (!msg || typeof msg.success !== 'boolean') return;
+        if (msg.reqId && msg.reqId !== reqId) return;
 
         settled = true;
         cleanup();
@@ -844,7 +848,7 @@ function apiPost(action, params, payload) {
       form.submit();
     });
   }
-
+  
   function setupSubCenterField() {
     if (!SUB_CENTERS || SUB_CENTERS.length === 0) return;
     var select = document.getElementById('fSubCenter');
