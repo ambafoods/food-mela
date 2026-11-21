@@ -778,16 +778,16 @@
 
 function apiPost(action, params, payload) {
     return new Promise(function (resolve, reject) {
-      var reqId = '__apiPost_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+      var cbName = '__apiPostCb_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
       var url = API_BASE_URL + '?api=' + encodeURIComponent(action) +
-        '&via=iframe&reqId=' + encodeURIComponent(reqId);
+        '&via=iframe&callback=' + encodeURIComponent(cbName);
       if (params) {
         Object.keys(params).forEach(function (k) {
           url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
         });
       }
 
-      var frameName = reqId + '_frame';
+      var frameName = cbName + '_frame';
       var iframe = document.createElement('iframe');
       iframe.name = frameName;
       iframe.style.display = 'none';
@@ -806,42 +806,33 @@ function apiPost(action, params, payload) {
 
       var settled = false;
 
-      function onMessage(event) {
+      window[cbName] = function (res) {
         if (settled) return;
-
-        var msg = event.data;
-        if (typeof msg === 'string') {
-          try { msg = JSON.parse(msg); } catch (e) { return; }
-        }
-        if (!msg || typeof msg.success !== 'boolean') return;
-        if (msg.reqId && msg.reqId !== reqId) return;
-
         settled = true;
         cleanup();
-        if (!msg.success) {
-          reject(new Error(msg.error || 'Request failed.'));
+        if (!res || !res.success) {
+          reject(new Error((res && res.error) || 'Request failed.'));
           return;
         }
-        resolve(msg.data);
-      }
+        resolve(res.data);
+      };
 
       var timer = setTimeout(function () {
         if (settled) return;
         settled = true;
         cleanup();
         reject(new Error('Submission timed out. Please check if your order went through.'));
-      }, 20000);
+      }, 25000);
 
       function cleanup() {
         clearTimeout(timer);
-        window.removeEventListener('message', onMessage);
+        try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
         setTimeout(function () {
           if (form && form.parentNode) form.parentNode.removeChild(form);
           if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
         }, 500);
       }
 
-      window.addEventListener('message', onMessage);
       document.body.appendChild(iframe);
       document.body.appendChild(form);
       form.submit();
