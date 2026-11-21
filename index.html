@@ -808,7 +808,6 @@ function apiPost(action, params, payload) {
 
       function onMessage(event) {
         if (settled) return;
-        if (iframe.contentWindow && event.source && event.source !== iframe.contentWindow) return;
 
         var msg = event.data;
         if (typeof msg === 'string') {
