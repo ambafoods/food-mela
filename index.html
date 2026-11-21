@@ -778,14 +778,15 @@
 
 function apiPost(action, params, payload) {
     return new Promise(function (resolve, reject) {
-      var url = API_BASE_URL + '?api=' + encodeURIComponent(action);
+      var reqId = '__apiPost_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+      var url = API_BASE_URL + '?api=' + encodeURIComponent(action) + '&via=iframe';
       if (params) {
         Object.keys(params).forEach(function (k) {
           url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
         });
       }
 
-      var frameName = '__apiPostFrame_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+      var frameName = reqId + '_frame';
       var iframe = document.createElement('iframe');
       iframe.name = frameName;
       iframe.style.display = 'none';
@@ -803,6 +804,24 @@ function apiPost(action, params, payload) {
       form.appendChild(input);
 
       var settled = false;
+
+      function onMessage(event) {
+        if (settled) return;
+        var msg = event.data;
+        if (typeof msg === 'string') {
+          try { msg = JSON.parse(msg); } catch (e) { return; }
+        }
+        if (!msg || typeof msg.success !== 'boolean') return;
+
+        settled = true;
+        cleanup();
+        if (!msg.success) {
+          reject(new Error(msg.error || 'Request failed.'));
+          return;
+        }
+        resolve(msg.data);
+      }
+
       var timer = setTimeout(function () {
         if (settled) return;
         settled = true;
@@ -812,26 +831,14 @@ function apiPost(action, params, payload) {
 
       function cleanup() {
         clearTimeout(timer);
+        window.removeEventListener('message', onMessage);
         setTimeout(function () {
           if (form && form.parentNode) form.parentNode.removeChild(form);
           if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
         }, 500);
       }
 
-      iframe.onload = function () {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        resolve({ success: true });
-      };
-
-      iframe.onerror = function () {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(new Error('Failed to submit order.'));
-      };
-
+      window.addEventListener('message', onMessage);
       document.body.appendChild(iframe);
       document.body.appendChild(form);
       form.submit();
