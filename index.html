@@ -776,23 +776,66 @@
     });
   }
 
-  function apiPost(action, params, payload) {
-    var url = API_BASE_URL + '?api=' + encodeURIComponent(action);
-    if (params) {
-      Object.keys(params).forEach(function (k) {
-        url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
-      });
-    }
-    return fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    })
-      .then(function (res) { return res.json(); })
-      .then(function (json) {
-        if (!json.success) throw new Error(json.error || 'Request failed.');
-        return json.data;
-      });
+function apiPost(action, params, payload) {
+    return new Promise(function (resolve, reject) {
+      var url = API_BASE_URL + '?api=' + encodeURIComponent(action);
+      if (params) {
+        Object.keys(params).forEach(function (k) {
+          url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+        });
+      }
+
+      var frameName = '__apiPostFrame_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+      var iframe = document.createElement('iframe');
+      iframe.name = frameName;
+      iframe.style.display = 'none';
+
+      var form = document.createElement('form');
+      form.method = 'POST';
+      form.action = url;
+      form.target = frameName;
+      form.style.display = 'none';
+
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'payload';
+      input.value = JSON.stringify(payload || {});
+      form.appendChild(input);
+
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error('Submission timed out. Please check if your order went through.'));
+      }, 20000);
+
+      function cleanup() {
+        clearTimeout(timer);
+        setTimeout(function () {
+          if (form && form.parentNode) form.parentNode.removeChild(form);
+          if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
+        }, 500);
+      }
+
+      iframe.onload = function () {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({ success: true });
+      };
+
+      iframe.onerror = function () {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error('Failed to submit order.'));
+      };
+
+      document.body.appendChild(iframe);
+      document.body.appendChild(form);
+      form.submit();
+    });
   }
 
   function setupSubCenterField() {
