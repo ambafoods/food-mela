@@ -693,18 +693,45 @@
   // bridge project — see apps-script-backend/Code.gs for the matching
   // server-side half and why this exists at all instead of google.script.run.
   function apiGet(action, params) {
-    var url = API_BASE_URL + '?api=' + encodeURIComponent(action);
-    if (params) {
-      Object.keys(params).forEach(function (k) {
-        url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
-      });
-    }
-    return fetch(url)
-      .then(function (res) { return res.json(); })
-      .then(function (json) {
-        if (!json.success) throw new Error(json.error || 'Request failed.');
-        return json.data;
-      });
+    return new Promise(function (resolve, reject) {
+      var cbName = '__apiCb_' + action + '_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+      var url = API_BASE_URL + '?api=' + encodeURIComponent(action);
+      if (params) {
+        Object.keys(params).forEach(function (k) {
+          url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+        });
+      }
+      url += '&callback=' + encodeURIComponent(cbName);
+  
+      var script = document.createElement('script');
+      var timer = setTimeout(function () {
+        cleanup();
+        reject(new Error('Request timed out.'));
+      }, 15000);
+  
+      function cleanup() {
+        clearTimeout(timer);
+        try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
+        if (script && script.parentNode) script.parentNode.removeChild(script);
+      }
+  
+      window[cbName] = function (json) {
+        cleanup();
+        if (!json || !json.success) {
+          reject(new Error((json && json.error) || 'Request failed.'));
+          return;
+        }
+        resolve(json.data);
+      };
+  
+      script.onerror = function () {
+        cleanup();
+        reject(new Error('Failed to load script response.'));
+      };
+  
+      script.src = url;
+      document.body.appendChild(script);
+    });
   }
 
   function apiPost(action, params, payload) {
