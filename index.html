@@ -778,68 +778,102 @@
     });
   }
 
+  
 function apiPost(action, params, payload) {
-    return new Promise(function (resolve, reject) {
-      var cbName = '__apiPostCb_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
-      var url = API_BASE_URL + '?api=' + encodeURIComponent(action) +
-        '&via=iframe&callback=' + encodeURIComponent(cbName);
-      if (params) {
-        Object.keys(params).forEach(function (k) {
-          url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
-        });
-      }
+  return new Promise(function (resolve, reject) {
+    var reqId = '__apiPost_' + Date.now() + '_' +
+      Math.floor(Math.random() * 100000);
 
-      var frameName = cbName + '_frame';
-      var iframe = document.createElement('iframe');
-      iframe.name = frameName;
-      iframe.style.display = 'none';
+    var url = API_BASE_URL + '?api=' + encodeURIComponent(action) +
+      '&via=iframe&reqId=' + encodeURIComponent(reqId);
 
-      var form = document.createElement('form');
-      form.method = 'POST';
-      form.action = url;
-      form.target = frameName;
-      form.style.display = 'none';
+    if (params) {
+      Object.keys(params).forEach(function (k) {
+        url += '&' + encodeURIComponent(k) + '=' +
+          encodeURIComponent(params[k]);
+      });
+    }
 
-      var input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = 'payload';
-      input.value = JSON.stringify(payload || {});
-      form.appendChild(input);
+    var frameName = reqId + '_frame';
+    var iframe = document.createElement('iframe');
+    iframe.name = frameName;
+    iframe.style.display = 'none';
 
-      var settled = false;
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = url;
+    form.target = frameName;
+    form.style.display = 'none';
 
-      window[cbName] = function (res) {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        if (!res || !res.success) {
-          reject(new Error((res && res.error) || 'Request failed.'));
-          return;
+    var input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'payload';
+    input.value = JSON.stringify(payload || {});
+    form.appendChild(input);
+
+    var settled = false;
+    var timer;
+
+    function cleanup() {
+      clearTimeout(timer);
+      window.removeEventListener('message', handleMessage);
+
+      setTimeout(function () {
+        if (form && form.parentNode) {
+          form.parentNode.removeChild(form);
         }
-        resolve(res.data);
-      };
+        if (iframe && iframe.parentNode) {
+          iframe.parentNode.removeChild(iframe);
+        }
+      }, 500);
+    }
 
-      var timer = setTimeout(function () {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(new Error('Submission timed out. Please check if your order went through.'));
-      }, 25000);
+    function finishError(message) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(message));
+    }
 
-      function cleanup() {
-        clearTimeout(timer);
-        try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
-        setTimeout(function () {
-          if (form && form.parentNode) form.parentNode.removeChild(form);
-          if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
-        }, 500);
+    function handleMessage(event) {
+      // Accept messages only from this request's iframe.
+      if (!iframe.contentWindow ||
+          event.source !== iframe.contentWindow) {
+        return;
       }
 
-      document.body.appendChild(iframe);
-      document.body.appendChild(form);
-      form.submit();
-    });
-  }
+      var res = event.data;
+
+      // Ignore unrelated messages.
+      if (!res || res.reqId !== reqId) return;
+
+      if (settled) return;
+      settled = true;
+      cleanup();
+
+      if (!res.success) {
+        reject(new Error(res.error || 'Request failed.'));
+        return;
+      }
+
+      resolve(res.data);
+    }
+
+    window.addEventListener('message', handleMessage);
+
+    timer = setTimeout(function () {
+      finishError(
+        'Submission timed out. Please check if your order went through.'
+      );
+    }, 25000);
+
+    document.body.appendChild(iframe);
+    document.body.appendChild(form);
+
+    form.submit();
+  });
+}
+
   
   function setupSubCenterField() {
     if (!SUB_CENTERS || SUB_CENTERS.length === 0) return;
