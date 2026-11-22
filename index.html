@@ -1,5 +1,3 @@
-
-<!-- comment -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -273,14 +271,6 @@
     .product-card:hover {
       box-shadow: 0 6px 18px rgba(0,0,0,0.06);
     }
-    .product-card.is-sold-out {
-      background: #F9FAFB;
-      border-color: #E5E7EB;
-    }
-    .product-card.is-sold-out .photo img {
-      opacity: 0.55;
-      filter: grayscale(40%);
-    }
 
     .card-top {
       display: flex;
@@ -329,20 +319,6 @@
     .name-en { font-weight: 700; font-size: 17px; color: var(--text); line-height: 1.3; }
     .name-gu { color: var(--muted); font-size: 14px; margin-top: 3px; }
 
-    .sold-out-pill {
-      display: inline-block;
-      margin-top: 6px;
-      background: #FEE2E2;
-      color: var(--danger);
-      border: 1px solid #FECACA;
-      font-size: 11px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      padding: 2px 8px;
-      border-radius: 999px;
-    }
-
     .variant-selector-title {
       font-size: 12px;
       font-weight: 700;
@@ -381,14 +357,6 @@
       margin-top: 2px;
       display: block;
     }
-    .v-pill .v-status {
-      font-size: 10px;
-      font-weight: 800;
-      color: var(--danger);
-      margin-top: 2px;
-      display: block;
-      text-transform: uppercase;
-    }
     .v-pill.selected {
       background: var(--primary-light);
       border-color: var(--primary);
@@ -398,10 +366,6 @@
     .v-pill.selected .v-price {
       color: var(--primary-dark);
       font-weight: 800;
-    }
-    .v-pill.sold-out-variant:not(.selected) {
-      opacity: 0.65;
-      background: #F9FAFB;
     }
     .v-pill.has-cart {
       position: relative;
@@ -446,11 +410,6 @@
       border-radius: 10px;
       overflow: hidden;
     }
-    .stepper.disabled {
-      background: #F3F4F6;
-      border-color: #E5E7EB;
-      opacity: 0.65;
-    }
     .stepper button {
       background: none;
       border: none;
@@ -461,20 +420,13 @@
       color: var(--primary-dark);
       cursor: pointer;
     }
-    .stepper button:disabled {
-      color: #9CA3AF;
-      cursor: not-allowed;
-    }
-    .stepper button:not(:disabled):active { background: var(--primary); color: #fff; }
+    .stepper button:active { background: var(--primary); color: #fff; }
     .stepper .qty {
       width: 36px;
       text-align: center;
       font-size: 16px;
       font-weight: 800;
       color: var(--primary-dark);
-    }
-    .stepper.disabled .qty {
-      color: #6B7280;
     }
 
     .lightbox {
@@ -717,8 +669,8 @@
   // Apps Script project described in apps-script-backend/Code.gs and
   // README.md in this same folder. This is NOT the same URL as the main
   // order page.
+  var API_BASE_URL = 'https://script.google.com/macros/s/AKfycbw2NcuEMWAf1GxJeLjDuePqE9hI3V1tqKaeSMkGqKaiyvoZLkzvaEpOgXuh5xWgiwxNRA/exec';
 
-  var API_BASE_URL = 'https://script.google.com/macros/s/AKfycbz43zEgQ9QDqwAQ-jREXzRGbTgFedgbH9UI9lmmqu4a29imTzLWfzyWIbxDc6HHnGvz/exec';
 
   var INITIAL_EDIT_TOKEN = new URLSearchParams(window.location.search).get('edit');
 
@@ -736,145 +688,46 @@
     });
   }
 
+  // ---- Backend calls, over plain fetch() against the standalone API
+  // bridge project — see apps-script-backend/Code.gs for the matching
+  // server-side half and why this exists at all instead of google.script.run.
   function apiGet(action, params) {
-    return new Promise(function (resolve, reject) {
-      var cbName = '__apiCb_' + action + '_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
-      var url = API_BASE_URL + '?api=' + encodeURIComponent(action);
-      if (params) {
-        Object.keys(params).forEach(function (k) {
-          url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
-        });
-      }
-      url += '&callback=' + encodeURIComponent(cbName);
-
-      var script = document.createElement('script');
-      var timer = setTimeout(function () {
-        cleanup();
-        reject(new Error('Request timed out.'));
-      }, 15000);
-
-      function cleanup() {
-        clearTimeout(timer);
-        try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
-        if (script && script.parentNode) script.parentNode.removeChild(script);
-      }
-
-      window[cbName] = function (json) {
-        cleanup();
-        if (!json || !json.success) {
-          reject(new Error((json && json.error) || 'Request failed.'));
-          return;
-        }
-        resolve(json.data);
-      };
-
-      script.onerror = function () {
-        cleanup();
-        reject(new Error('Failed to load script response.'));
-      };
-
-      script.src = url;
-      document.body.appendChild(script);
-    });
-  }
-
-  
-function apiPost(action, params, payload) {
-  return new Promise(function (resolve, reject) {
-    var reqId = '__apiPost_' + Date.now() + '_' +
-      Math.floor(Math.random() * 100000);
-
-    var url = API_BASE_URL + '?api=' + encodeURIComponent(action) +
-      '&via=iframe&reqId=' + encodeURIComponent(reqId);
-
+    var url = API_BASE_URL + '?api=' + encodeURIComponent(action);
     if (params) {
       Object.keys(params).forEach(function (k) {
-        url += '&' + encodeURIComponent(k) + '=' +
-          encodeURIComponent(params[k]);
+        url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
       });
     }
+    return fetch(url)
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        if (!json.success) throw new Error(json.error || 'Request failed.');
+        return json.data;
+      });
+  }
 
-    var frameName = reqId + '_frame';
-    var iframe = document.createElement('iframe');
-    iframe.name = frameName;
-    iframe.style.display = 'none';
-
-    var form = document.createElement('form');
-    form.method = 'POST';
-    form.action = url;
-    form.target = frameName;
-    form.style.display = 'none';
-
-    var input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'payload';
-    input.value = JSON.stringify(payload || {});
-    form.appendChild(input);
-
-    var settled = false;
-    var timer;
-
-    function cleanup() {
-      clearTimeout(timer);
-      window.removeEventListener('message', handleMessage);
-
-      setTimeout(function () {
-        if (form && form.parentNode) {
-          form.parentNode.removeChild(form);
-        }
-        if (iframe && iframe.parentNode) {
-          iframe.parentNode.removeChild(iframe);
-        }
-      }, 500);
+  function apiPost(action, params, payload) {
+    var url = API_BASE_URL + '?api=' + encodeURIComponent(action);
+    if (params) {
+      Object.keys(params).forEach(function (k) {
+        url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+      });
     }
+    return fetch(url, {
+      method: 'POST',
+      // text/plain on purpose — a JSON content type triggers a CORS
+      // preflight (OPTIONS) request that Apps Script web apps can't answer,
+      // so a real application/json POST would simply fail cross-origin.
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        if (!json.success) throw new Error(json.error || 'Request failed.');
+        return json.data;
+      });
+  }
 
-    function finishError(message) {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new Error(message));
-    }
-
-    function handleMessage(event) {
-      // Accept messages only from this request's iframe.
-      if (!iframe.contentWindow ||
-          event.source !== iframe.contentWindow) {
-        return;
-      }
-
-      var res = event.data;
-
-      // Ignore unrelated messages.
-      if (!res || res.reqId !== reqId) return;
-
-      if (settled) return;
-      settled = true;
-      cleanup();
-
-      if (!res.success) {
-        reject(new Error(res.error || 'Request failed.'));
-        return;
-      }
-
-      resolve(res.data);
-    }
-
-    window.addEventListener('message', handleMessage);
-
-    timer = setTimeout(function () {
-      finishError(
-        'Submission timed out. Please check if your order went through.'
-      );
-    }, 25000);
-
-    document.body.appendChild(iframe);
-    document.body.appendChild(form);
-
-    form.submit();
-  });
-}
-
-  
   function setupSubCenterField() {
     if (!SUB_CENTERS || SUB_CENTERS.length === 0) return;
     var select = document.getElementById('fSubCenter');
@@ -904,16 +757,6 @@ function apiPost(action, params, payload) {
     if (e.target.id === 'lightbox') closeLightbox();
   });
 
-  function catalogItem(key) {
-    for (var i = 0; i < catalog.length; i++) if (catalog[i].key === key) return catalog[i];
-    return null;
-  }
-
-  function isItemAvailable(key) {
-    var item = catalogItem(key);
-    return !!(item && item.available !== false);
-  }
-
   function buildGroups() {
     var catOrder = [];
     var catMap = {};
@@ -936,8 +779,7 @@ function apiPost(action, params, payload) {
         products: Object.keys(catMap[catName]).map(function (k) {
           var p = catMap[catName][k];
           if (!selectedVariantMap[p.prodKey] && p.variants.length > 0) {
-            var firstAvail = p.variants.find(function (v) { return v.available !== false; });
-            selectedVariantMap[p.prodKey] = (firstAvail || p.variants[0]).key;
+            selectedVariantMap[p.prodKey] = p.variants[0].key;
           }
           return p;
         })
@@ -968,22 +810,17 @@ function apiPost(action, params, payload) {
       var productsHtml = g.products.map(function (p) {
         var activeVarKey = selectedVariantMap[p.prodKey];
         var activeVariant = p.variants.find(function(v){ return v.key === activeVarKey; }) || p.variants[0];
-        var allVariantsSoldOut = p.variants.every(function (v) { return v.available === false; });
-        var activeSoldOut = activeVariant.available === false;
 
         var pillsHtml = p.variants.map(function (v) {
           var isSelected = (v.key === activeVariant.key);
-          var isVarSoldOut = (v.available === false);
           var inCartQty = cart[v.key] || 0;
           var hasCartClass = inCartQty > 0 ? ' has-cart' : '';
           var selectedClass = isSelected ? ' selected' : '';
-          var soldOutClass = isVarSoldOut ? ' sold-out-variant' : '';
 
           return (
-            '<button type="button" class="v-pill' + selectedClass + hasCartClass + soldOutClass + '" data-prod="' + escapeHtml(p.prodKey) + '" data-key="' + escapeHtml(v.key) + '">' +
+            '<button type="button" class="v-pill' + selectedClass + hasCartClass + '" data-prod="' + escapeHtml(p.prodKey) + '" data-key="' + escapeHtml(v.key) + '">' +
               '<span class="v-weight">' + escapeHtml(v.variant) + '</span>' +
               '<span class="v-price">' + fmtMoney(v.price) + '</span>' +
-              (isVarSoldOut ? '<span class="v-status">Sold Out</span>' : '') +
             '</button>'
           );
         }).join('');
@@ -992,20 +829,16 @@ function apiPost(action, params, payload) {
           (p.photo ? '<img src="' + escapeHtml(p.photo) + '" alt="">' +
                       '<span class="zoom-badge">🔍</span>' : '');
 
-        var currentQty = activeSoldOut ? 0 : (cart[activeVariant.key] || 0);
-        if (activeSoldOut && cart[activeVariant.key]) {
-          delete cart[activeVariant.key];
-        }
+        var currentQty = cart[activeVariant.key] || 0;
 
         return (
-          '<div class="product-card' + (allVariantsSoldOut ? ' is-sold-out' : '') + '" id="card-' + slug(p.prodKey) + '">' +
+          '<div class="product-card" id="card-' + slug(p.prodKey) + '">' +
             '<div>' +
               '<div class="card-top">' +
                 '<div class="photo">' + photoHtml + '</div>' +
                 '<div class="info">' +
                   '<div class="name-en">' + escapeHtml(p.english) + '</div>' +
                   (p.gujarati ? '<div class="name-gu guj">' + escapeHtml(p.gujarati) + '</div>' : '') +
-                  (allVariantsSoldOut ? '<span class="sold-out-pill">Sold Out</span>' : '') +
                 '</div>' +
               '</div>' +
 
@@ -1015,13 +848,13 @@ function apiPost(action, params, payload) {
 
             '<div class="card-footer">' +
               '<div class="active-price-display">' +
-                '<span class="label">' + (activeSoldOut ? 'Sold Out (' + escapeHtml(activeVariant.variant) + ')' : 'Price (' + escapeHtml(activeVariant.variant) + ')') + '</span>' +
+                '<span class="label">Price (' + escapeHtml(activeVariant.variant) + ')</span>' +
                 '<span class="val">' + fmtMoney(activeVariant.price) + '</span>' +
               '</div>' +
-              '<div class="stepper' + (activeSoldOut ? ' disabled' : '') + '" data-key="' + escapeHtml(activeVariant.key) + '">' +
-                '<button type="button" class="dec"' + (activeSoldOut || currentQty <= 0 ? ' disabled' : '') + '>−</button>' +
+              '<div class="stepper" data-key="' + escapeHtml(activeVariant.key) + '">' +
+                '<button type="button" class="dec">−</button>' +
                 '<span class="qty">' + currentQty + '</span>' +
-                '<button type="button" class="inc"' + (activeSoldOut ? ' disabled' : '') + '>+</button>' +
+                '<button type="button" class="inc">+</button>' +
               '</div>' +
             '</div>' +
           '</div>'
@@ -1059,7 +892,6 @@ function apiPost(action, params, payload) {
 
     area.querySelectorAll('.stepper').forEach(function (stepper) {
       var key = stepper.getAttribute('data-key');
-      if (!isItemAvailable(key)) return;
       stepper.querySelector('.inc').addEventListener('click', function () { changeQty(key, 1, stepper); });
       stepper.querySelector('.dec').addEventListener('click', function () { changeQty(key, -1, stepper); });
     });
@@ -1077,7 +909,6 @@ function apiPost(action, params, payload) {
   }
 
   function changeQty(key, delta, stepperEl) {
-    if (delta > 0 && !isItemAvailable(key)) return;
     var current = cart[key] || 0;
     var next = Math.max(0, current + delta);
     if (next === 0) delete cart[key]; else cart[key] = next;
@@ -1087,12 +918,17 @@ function apiPost(action, params, payload) {
     render();
   }
 
+  function catalogItem(key) {
+    for (var i = 0; i < catalog.length; i++) if (catalog[i].key === key) return catalog[i];
+    return null;
+  }
+
   function updateCartUI() {
     var keys = Object.keys(cart);
     var total = 0, count = 0;
     keys.forEach(function (k) {
       var item = catalogItem(k);
-      if (!item || item.available === false) return;
+      if (!item) return;
       total += item.price * cart[k];
       count += cart[k];
     });
@@ -1141,8 +977,8 @@ function apiPost(action, params, payload) {
 
   document.getElementById('submitBtn').addEventListener('click', function () {
     clearError();
-    var keys = Object.keys(cart).filter(function (k) { return cart[k] > 0 && isItemAvailable(k); });
-    if (keys.length === 0) { showError('Please select at least one available item.'); return; }
+    var keys = Object.keys(cart);
+    if (keys.length === 0) { showError('Please select at least one item.'); return; }
 
     var name = document.getElementById('fName').value.trim();
     var email = document.getElementById('fEmail').value.trim();
@@ -1286,6 +1122,8 @@ function apiPost(action, params, payload) {
       });
   });
 
+  // ---- Initial load: settings + catalog in parallel, then edit-link lookup
+  // if the page was opened with ?edit=TOKEN.
   if (API_BASE_URL.indexOf('PASTE_YOUR') !== -1) {
     document.getElementById('loadingScreen').innerHTML =
       '<p style="color:#DC2626;">This page is not configured yet — API_BASE_URL in index.html still needs the API bridge\'s real .../exec URL. See github_pages/README.md.</p>';
