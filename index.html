@@ -402,6 +402,16 @@
     .active-price-display .label { font-size: 12px; color: var(--muted); }
     .active-price-display .val { font-size: 20px; font-weight: 800; color: var(--text); }
 
+    .sold-out-text {
+      display: flex;
+      align-items: center;
+      min-height: 40px;
+      color: var(--danger);
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
     .stepper {
       display: flex;
       align-items: center;
@@ -593,7 +603,8 @@
     <div id="editLookupForm" hidden>
       <div class="field">
         <label for="lookupWhatsapp">WhatsApp Number</label>
-        <input id="lookupWhatsapp" type="tel" autocomplete="tel" placeholder="e.g. 987xxxxx10">
+        <input id="lookupWhatsapp" type="tel" inputmode="numeric" autocomplete="tel" maxlength="10" pattern="[6-9][0-9]{9}" placeholder="10-digit Indian mobile number" aria-describedby="lookupWhatsappHint">
+        <div class="note" id="lookupWhatsappHint" aria-live="polite">Enter 10 digits starting with 6, 7, 8 or 9.</div>
       </div>
       <div class="field">
         <label for="lookupInvoice">Invoice Number (on your invoice)</label>
@@ -635,7 +646,8 @@
       </div>
       <div class="field">
         <label for="fWhatsapp">WhatsApp Number</label>
-        <input id="fWhatsapp" type="tel" autocomplete="tel" placeholder="e.g. 987xxxxx10">
+        <input id="fWhatsapp" type="tel" inputmode="numeric" autocomplete="tel" maxlength="10" pattern="[6-9][0-9]{9}" placeholder="10-digit Indian mobile number" aria-describedby="fWhatsappHint">
+        <div class="note" id="fWhatsappHint" aria-live="polite">Enter 10 digits starting with 6, 7, 8 or 9.</div>
       </div>
 
       <div class="error-box" id="errorBox" hidden></div>
@@ -698,7 +710,7 @@
         url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
       });
     }
-    return fetch(url)
+    return fetch(url, { cache: 'no-store' })
       .then(function (res) { return res.json(); })
       .then(function (json) {
         if (!json.success) throw new Error(json.error || 'Request failed.');
@@ -789,9 +801,84 @@
 
   function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''); }
 
+  // ---- Availability (the server sends the FINAL availability per item:
+  // manual Sold Out + physical stock + pooled order limit) ----------------
+
+  // A product (one card) is sold out if ANY of its pack-size variants is sold out.
+  function isProductSoldOut(p) {
+    return p.variants.some(function (v) { return v.available === false; });
+  }
+
+  function productForKey(key) {
+    for (var gi = 0; gi < groups.length; gi++) {
+      for (var pi = 0; pi < groups[gi].products.length; pi++) {
+        var p = groups[gi].products[pi];
+        for (var vi = 0; vi < p.variants.length; vi++) {
+          if (p.variants[vi].key === key) return p;
+        }
+      }
+    }
+    return null;
+  }
+
+  function isItemAvailable(key) {
+    var item = catalogItem(key);
+    if (!item || item.available === false) return false;
+    var p = productForKey(key);
+    return !!p && !isProductSoldOut(p);
+  }
+
+  // Largest total quantity still orderable for a product (physical stock / order
+  // limit), or null when there is no cap. Same for every pack size of the product.
+  function productMaxOrderable(p) {
+    var max = null;
+    p.variants.forEach(function (v) {
+      if (v.maxOrderable === null || v.maxOrderable === undefined) return;
+      max = (max === null) ? v.maxOrderable : Math.min(max, v.maxOrderable);
+    });
+    return max;
+  }
+  function productCartTotal(p) {
+    var total = 0;
+    p.variants.forEach(function (v) { total += cart[v.key] || 0; });
+    return total;
+  }
+  function atProductMax(p) {
+    var max = productMaxOrderable(p);
+    return max !== null && productCartTotal(p) >= max;
+  }
+
+  // While editing an existing order the server must not count that order's own
+  // units against the customer, so the edit token is sent with catalog requests.
+  function catalogToken() { return isEditMode && currentEditToken ? currentEditToken : null; }
+  function fetchCatalog(token) { return apiGet('catalog', token ? { token: token } : null); }
+
+  // Names of products removed from the cart because they became unavailable.
+  var unavailableNotice = [];
+
+  // Removes cart lines whose product is (now) sold out. Returns the product
+  // names removed so the customer can be told. Keys not in the catalog are left alone.
+  var lastRemovedProductKeys = [];
+  function removeSoldOutItemsFromCart() {
+    var removed = [];
+    lastRemovedProductKeys = [];
+    Object.keys(cart).forEach(function (k) {
+      var item = catalogItem(k);
+      if (!item) return;
+      if (isItemAvailable(k)) return;
+      if (removed.indexOf(item.english) === -1) removed.push(item.english);
+      var p = productForKey(k);
+      if (p && lastRemovedProductKeys.indexOf(p.prodKey) === -1) lastRemovedProductKeys.push(p.prodKey);
+      delete cart[k];
+    });
+    return removed;
+  }
+
   function render() {
     var chips = document.getElementById('chips');
     var area = document.getElementById('catalogArea');
+    var removedNow = removeSoldOutItemsFromCart();
+    if (removedNow.length > 0) unavailableNotice = removedNow;
 
     chips.innerHTML = groups.map(function (g, idx) {
       return '<button type="button" class="' + (idx === 0 ? 'active' : '') + '" data-target="cat-' + slug(g.category) + '">' + escapeHtml(g.category) + '</button>';
@@ -810,6 +897,7 @@
       var productsHtml = g.products.map(function (p) {
         var activeVarKey = selectedVariantMap[p.prodKey];
         var activeVariant = p.variants.find(function(v){ return v.key === activeVarKey; }) || p.variants[0];
+        var productSoldOut = isProductSoldOut(p);
 
         var pillsHtml = p.variants.map(function (v) {
           var isSelected = (v.key === activeVariant.key);
@@ -831,6 +919,14 @@
 
         var currentQty = cart[activeVariant.key] || 0;
 
+        var qtyAreaHtml = productSoldOut
+          ? '<div class="sold-out-text" role="status">SOLD OUT</div>'
+          : '<div class="stepper" data-key="' + escapeHtml(activeVariant.key) + '">' +
+              '<button type="button" class="dec"' + (currentQty <= 0 ? ' disabled' : '') + '>−</button>' +
+              '<span class="qty">' + currentQty + '</span>' +
+              '<button type="button" class="inc"' + (atProductMax(p) ? ' disabled' : '') + '>+</button>' +
+            '</div>';
+
         return (
           '<div class="product-card" id="card-' + slug(p.prodKey) + '">' +
             '<div>' +
@@ -851,11 +947,7 @@
                 '<span class="label">Price (' + escapeHtml(activeVariant.variant) + ')</span>' +
                 '<span class="val">' + fmtMoney(activeVariant.price) + '</span>' +
               '</div>' +
-              '<div class="stepper" data-key="' + escapeHtml(activeVariant.key) + '">' +
-                '<button type="button" class="dec">−</button>' +
-                '<span class="qty">' + currentQty + '</span>' +
-                '<button type="button" class="inc">+</button>' +
-              '</div>' +
+              qtyAreaHtml +
             '</div>' +
           '</div>'
         );
@@ -909,6 +1001,12 @@
   }
 
   function changeQty(key, delta, stepperEl) {
+    if (delta > 0 && !isItemAvailable(key)) return;
+    if (delta > 0) {
+      var prod = productForKey(key);
+      if (prod && atProductMax(prod)) return;
+    }
+    unavailableNotice = [];
     var current = cart[key] || 0;
     var next = Math.max(0, current + delta);
     if (next === 0) delete cart[key]; else cart[key] = next;
@@ -928,7 +1026,7 @@
     var total = 0, count = 0;
     keys.forEach(function (k) {
       var item = catalogItem(k);
-      if (!item) return;
+      if (!item || !isItemAvailable(k)) return;
       total += item.price * cart[k];
       count += cart[k];
     });
@@ -937,10 +1035,15 @@
     document.getElementById('grandTotal').textContent = fmtMoney(total);
 
     var reviewEl = document.getElementById('reviewLines');
+    var noticeHtml = unavailableNotice.length === 0 ? '' :
+      '<div class="review-empty" style="color:var(--danger);font-weight:700;">' +
+        escapeHtml(unavailableNotice.join(', ')) + (unavailableNotice.length === 1 ? ' is' : ' are') +
+        ' no longer available and ' + (unavailableNotice.length === 1 ? 'was' : 'were') +
+        ' removed from your order.</div>';
     if (keys.length === 0) {
-      reviewEl.innerHTML = '<div class="review-empty">No items selected yet — choose a pack size above and tap +.</div>';
+      reviewEl.innerHTML = noticeHtml + '<div class="review-empty">No items selected yet — choose a pack size above and tap +.</div>';
     } else {
-      reviewEl.innerHTML = keys.map(function (k) {
+      reviewEl.innerHTML = noticeHtml + keys.map(function (k) {
         var item = catalogItem(k);
         if (!item) return '';
         var lineTotal = item.price * cart[k];
@@ -966,6 +1069,63 @@
     document.getElementById('checkout').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
+  // Indian mobile validation: exactly 10 ASCII digits, starts 6/7/8/9,
+  // no run of 6 or more identical digits (5 in a row is allowed),
+  // and no ascending or descending run of 4 or more consecutive digits.
+  // (The server enforces the same rules; this gives instant feedback.)
+  function validateIndianWhatsApp(value) {
+    var number = String(value || '');
+    if (!number) return { valid: false, message: 'Enter your 10-digit WhatsApp number.' };
+    if (!/^[0-9]+$/.test(number)) return { valid: false, message: 'Use digits 0–9 only.' };
+    // Checked before the length rules so the customer sees it as soon as it is typed.
+    if (/([0-9])\1{5}/.test(number)) return { valid: false, message: 'Avoid 6 or more identical digits in a row.' };
+    if (number.length < 10) return { valid: false, message: 'Enter all 10 digits.' };
+    if (number.length > 10) return { valid: false, message: 'Only 10 digits are allowed.' };
+    if (!/^[6789]/.test(number)) return { valid: false, message: 'An Indian mobile number must start with 6, 7, 8 or 9.' };
+
+    var run = 1;
+    var direction = 0;
+    for (var i = 1; i < number.length; i++) {
+      var diff = Number(number.charAt(i)) - Number(number.charAt(i - 1));
+      var step = (diff === 1 || diff === -1) ? diff : 0;
+      if (step !== 0 && step === direction) {
+        run++;
+      } else if (step !== 0) {
+        direction = step;
+        run = 2;
+      } else {
+        direction = 0;
+        run = 1;
+      }
+      if (run >= 4) return { valid: false, message: 'Avoid 4 or more consecutive ascending or descending digits.' };
+    }
+    return { valid: true, message: 'WhatsApp number looks valid.' };
+  }
+
+  function bindWhatsAppValidation(inputId, hintId, buttonId) {
+    var input = document.getElementById(inputId);
+    var hint = document.getElementById(hintId);
+    var button = document.getElementById(buttonId);
+    function update() {
+      // Keep only digits and cap at 10 while the customer types or pastes.
+      var cleaned = input.value.replace(/[^0-9]/g, '').slice(0, 10);
+      if (input.value !== cleaned) input.value = cleaned;
+      var result = validateIndianWhatsApp(cleaned);
+      hint.textContent = result.message;
+      hint.style.color = result.valid ? 'var(--green)' : 'var(--danger)';
+      input.setAttribute('aria-invalid', result.valid ? 'false' : 'true');
+      button.disabled = !result.valid;
+      return result.valid;
+    }
+    input.addEventListener('input', update);
+    input.addEventListener('paste', function () { setTimeout(update, 0); });
+    update();
+    return update;
+  }
+
+  var isCheckoutWhatsAppValid = bindWhatsAppValidation('fWhatsapp', 'fWhatsappHint', 'submitBtn');
+  var isLookupWhatsAppValid = bindWhatsAppValidation('lookupWhatsapp', 'lookupWhatsappHint', 'lookupBtn');
+
   function showError(msg) {
     var box = document.getElementById('errorBox');
     box.textContent = msg;
@@ -975,10 +1135,55 @@
     document.getElementById('errorBox').hidden = true;
   }
 
+  // Reload availability from the server (used after the server reports that
+  // something is sold out) so the card itself shows SOLD OUT.
+  function refreshCatalog(fallbackMessage) {
+    fetchCatalog(catalogToken())
+      .then(function (data) {
+        catalog = data || [];
+        buildGroups();
+        render();
+        if (lastRemovedProductKeys.length > 0) {
+          // Take the customer to the card that now shows SOLD OUT.
+          var card = document.getElementById('card-' + slug(lastRemovedProductKeys[0]));
+          if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else if (fallbackMessage) {
+          // Page and server still disagree: show the server's message as a last resort.
+          showError(fallbackMessage);
+        }
+      })
+      .catch(function () { if (fallbackMessage) showError(fallbackMessage); });
+  }
+
+  // Keep availability current without a manual reload: re-check the catalog
+  // when the customer returns to the tab and every 30 seconds. The page is
+  // only redrawn when an item was added/removed or its Sold Out state changed.
+  var catalogLoaded = false;
+  function catalogSignature(items) {
+    return (items || []).map(function (i) { return i.key + ':' + (i.available === false ? 0 : 1); }).join('|');
+  }
+  function silentRefreshCatalog() {
+    if (!catalogLoaded || document.hidden) return;
+    if (!document.getElementById('successScreen').hidden) return;
+    fetchCatalog(catalogToken())
+      .then(function (data) {
+        data = data || [];
+        if (data.length === 0 || catalogSignature(data) === catalogSignature(catalog)) return;
+        catalog = data;
+        buildGroups();
+        render();
+      })
+      .catch(function () { /* try again next time */ });
+  }
+  setInterval(silentRefreshCatalog, 30000);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) silentRefreshCatalog();
+  });
+
   document.getElementById('submitBtn').addEventListener('click', function () {
     clearError();
-    var keys = Object.keys(cart);
-    if (keys.length === 0) { showError('Please select at least one item.'); return; }
+    var keys = Object.keys(cart).filter(function (k) { return isItemAvailable(k); });
+    if (keys.length === 0) { showError('Please select at least one available item.'); return; }
 
     var name = document.getElementById('fName').value.trim();
     var email = document.getElementById('fEmail').value.trim();
@@ -988,7 +1193,7 @@
     if (SUB_CENTERS && SUB_CENTERS.length > 0 && !subCenter) { showError('Please select your delivery/pickup center.'); return; }
     if (!name) { showError('Please enter your name.'); return; }
     if (!email || email.indexOf('@') === -1) { showError('Please enter a valid email address.'); return; }
-    if (whatsapp.replace(/\D/g, '').length < 10) { showError('Please enter a valid WhatsApp number.'); return; }
+    if (!validateIndianWhatsApp(whatsapp).valid) { showError(validateIndianWhatsApp(whatsapp).message); isCheckoutWhatsAppValid(); return; }
 
     var items = keys.map(function (k) { return { key: k, qty: cart[k] }; });
 
@@ -1021,7 +1226,10 @@
     function onSubmitFailure(err) {
       btn.disabled = false;
       btn.textContent = isEditMode ? 'Update Order' : 'Submit Order';
-      showError(err && err.message ? err.message : 'Something went wrong. Please try again.');
+      var msg = err && err.message ? err.message : 'Something went wrong. Please try again.';
+      // Server says something is sold out: reload availability so the product
+      // card itself shows SOLD OUT (in the quantity area) instead of an error box.
+      if (/sold out/i.test(msg)) refreshCatalog(msg); else showError(msg);
     }
 
     var payload = { name: name, email: email, whatsapp: whatsapp, subCenter: subCenter, items: items };
@@ -1056,12 +1264,27 @@
     document.getElementById('checkout').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
+  // Load the catalog with this order's own units released (so a product the
+  // customer holds the last units of does not show SOLD OUT to them), then fill the form.
   function applyOrderData(order) {
+    currentEditToken = order.editToken;
+    isEditMode = true;
+    fetchCatalog(order.editToken)
+      .then(function (data) {
+        if (data && data.length) { catalog = data; buildGroups(); }
+        fillOrderForm(order);
+      })
+      .catch(function () { fillOrderForm(order); });
+  }
+
+  function fillOrderForm(order) {
+    unavailableNotice = [];
     cart = {};
     (order.items || []).forEach(function (i) { cart[i.key] = i.qty; });
     document.getElementById('fName').value = order.name || '';
     document.getElementById('fEmail').value = order.email || '';
     document.getElementById('fWhatsapp').value = order.whatsapp || '';
+    isCheckoutWhatsAppValid();
     if (SUB_CENTERS && SUB_CENTERS.length > 0) {
       document.getElementById('fSubCenter').value = order.subCenter || '';
     }
@@ -1097,8 +1320,13 @@
 
     var whatsapp = document.getElementById('lookupWhatsapp').value.trim();
     var invoice = document.getElementById('lookupInvoice').value.trim();
-    if (!whatsapp || !invoice) {
-      errEl.textContent = 'Enter both your WhatsApp number and Invoice Number.';
+    if (!isLookupWhatsAppValid()) {
+      errEl.textContent = validateIndianWhatsApp(whatsapp).message;
+      errEl.hidden = false;
+      return;
+    }
+    if (!invoice) {
+      errEl.textContent = 'Enter your Invoice Number.';
       errEl.hidden = false;
       return;
     }
@@ -1128,7 +1356,7 @@
     document.getElementById('loadingScreen').innerHTML =
       '<p style="color:#DC2626;">This page is not configured yet — API_BASE_URL in index.html still needs the API bridge\'s real .../exec URL. See github_pages/README.md.</p>';
   } else {
-    Promise.all([apiGet('settings'), apiGet('catalog')])
+    Promise.all([apiGet('settings'), fetchCatalog(INITIAL_EDIT_TOKEN)])
       .then(function (results) {
         var settings = results[0];
         var data = results[1];
@@ -1148,6 +1376,7 @@
         catalog = data || [];
         buildGroups();
         render();
+        catalogLoaded = true;
 
         if (INITIAL_EDIT_TOKEN) {
           apiGet('order', { token: INITIAL_EDIT_TOKEN })
