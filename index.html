@@ -611,7 +611,7 @@
       <div class="field">
         <label for="lookupWhatsapp">WhatsApp Number</label>
         <input id="lookupWhatsapp" type="tel" inputmode="numeric" autocomplete="tel" maxlength="10" pattern="[6-9][0-9]{9}" placeholder="10-digit Indian mobile number" aria-describedby="lookupWhatsappHint">
-        <div class="note" id="lookupWhatsappHint" aria-live="polite">Enter 10 digits starting with 6, 7, 8 or 9.</div>
+        <div class="note" id="lookupWhatsappHint" aria-live="polite">Enter your 10-digit WhatsApp number.</div>
       </div>
       <div class="field">
         <label for="lookupInvoice">Invoice Number (on your invoice)</label>
@@ -654,7 +654,7 @@
       <div class="field">
         <label for="fWhatsapp">WhatsApp Number</label>
         <input id="fWhatsapp" type="tel" inputmode="numeric" autocomplete="tel" maxlength="10" pattern="[6-9][0-9]{9}" placeholder="10-digit Indian mobile number" aria-describedby="fWhatsappHint">
-        <div class="note" id="fWhatsappHint" aria-live="polite">Enter 10 digits starting with 6, 7, 8 or 9.</div>
+        <div class="note" id="fWhatsappHint" aria-live="polite">Enter your 10-digit WhatsApp number.</div>
       </div>
 
       <div class="error-box" id="errorBox" hidden></div>
@@ -1087,15 +1087,19 @@
   // no run of 6 or more identical digits (5 in a row is allowed),
   // and no ascending or descending run of 4 or more consecutive digits.
   // (The server enforces the same rules; this gives instant feedback.)
+  // Every kind of invalid number gets the SAME generic message on purpose, so the
+  // page never explains which rule was broken. `pending` = still typing (not an error).
+  var INVALID_WHATSAPP_MESSAGE = 'Invalid WhatsApp Number';
+  var ENTER_WHATSAPP_MESSAGE = 'Enter your 10-digit WhatsApp number.';
   function validateIndianWhatsApp(value) {
     var number = String(value || '');
-    if (!number) return { valid: false, message: 'Enter your 10-digit WhatsApp number.' };
-    if (!/^[0-9]+$/.test(number)) return { valid: false, message: 'Use digits 0–9 only.' };
+    if (!number) return { valid: false, pending: true, message: ENTER_WHATSAPP_MESSAGE };
+    if (!/^[0-9]+$/.test(number)) return { valid: false, message: INVALID_WHATSAPP_MESSAGE };
     // Checked before the length rules so the customer sees it as soon as it is typed.
-    if (/([0-9])\1{5}/.test(number)) return { valid: false, message: 'Avoid 6 or more identical digits in a row.' };
-    if (number.length < 10) return { valid: false, message: 'Enter all 10 digits.' };
-    if (number.length > 10) return { valid: false, message: 'Only 10 digits are allowed.' };
-    if (!/^[6789]/.test(number)) return { valid: false, message: 'An Indian mobile number must start with 6, 7, 8 or 9.' };
+    if (/([0-9])\1{5}/.test(number)) return { valid: false, message: INVALID_WHATSAPP_MESSAGE };
+    if (number.length < 10) return { valid: false, pending: true, message: ENTER_WHATSAPP_MESSAGE };
+    if (number.length > 10) return { valid: false, message: INVALID_WHATSAPP_MESSAGE };
+    if (!/^[6789]/.test(number)) return { valid: false, message: INVALID_WHATSAPP_MESSAGE };
 
     var run = 1;
     var direction = 0;
@@ -1111,9 +1115,9 @@
         direction = 0;
         run = 1;
       }
-      if (run >= 4) return { valid: false, message: 'Avoid 4 or more consecutive ascending or descending digits.' };
+      if (run >= 4) return { valid: false, message: INVALID_WHATSAPP_MESSAGE };
     }
-    return { valid: true, message: ' ' };
+    return { valid: true, message: '' };
   }
 
   function bindWhatsAppValidation(inputId, hintId, buttonId) {
@@ -1125,8 +1129,9 @@
       var cleaned = input.value.replace(/[^0-9]/g, '').slice(0, 10);
       if (input.value !== cleaned) input.value = cleaned;
       var result = validateIndianWhatsApp(cleaned);
-      hint.textContent = result.message;
-      hint.style.color = result.valid ? 'var(--green)' : 'var(--danger)';
+      // Valid number: no note at all. Still typing: neutral prompt. Invalid: generic red note.
+      hint.textContent = result.valid ? '' : result.message;
+      hint.style.color = result.pending ? 'var(--muted)' : 'var(--danger)';
       input.setAttribute('aria-invalid', result.valid ? 'false' : 'true');
       button.disabled = !result.valid;
       return result.valid;
