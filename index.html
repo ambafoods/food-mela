@@ -85,6 +85,15 @@
       border-bottom: 2px solid #f59e0b;
     }
 
+    .event-date {
+      margin-top: 6px;
+      text-align: center;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #fde68a;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+    }
     header.top p {
       margin: 6px 0 0;
       font-size: 14px;
@@ -600,6 +609,7 @@
       <img id="headerLogo" class="header-logo" alt="" hidden onerror="this.hidden=true">
       <div class="header-text-group">
         <h1 id="orgNameHeading">Order</h1>
+        <div class="event-date" id="eventDateText" hidden></div>
         <p><span id="orgSubtitleText"></span> &nbsp;•&nbsp; 7 PM onwards</p>
       </div>
     </div>
@@ -1383,6 +1393,10 @@
         document.title = settings.orgName + ' — Order';
         document.getElementById('orgNameHeading').textContent = settings.orgName;
         document.getElementById('orgSubtitleText').textContent = settings.orgSubtitle;
+        // Event date is plain text from Admin settings; blank/missing = nothing is shown.
+        var eventDateEl = document.getElementById('eventDateText');
+        eventDateEl.textContent = settings.eventDate || '';
+        eventDateEl.hidden = !settings.eventDate;
         if (settings.orgLogoUrl) {
           var logo = document.getElementById('headerLogo');
           logo.src = settings.orgLogoUrl;
