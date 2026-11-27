@@ -559,6 +559,11 @@
       background: #fff;
     }
     .field input:focus, .field select:focus { outline: none; border-color: var(--primary); }
+    /* Bilingual questions: Gujarati line on top, English below; the key word is bold. */
+    .field label.q-label { font-size: 15px; font-weight: 400; line-height: 1.45; }
+    .q-label .q-gu { display: block; }
+    .q-label .q-en { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .q-label b { font-weight: 800; color: var(--primary-dark); }
 
     #submitBtn {
       width: 100%;
@@ -583,6 +588,7 @@
       margin-top: 14px;
       font-size: 14px;
       font-weight: 600;
+      white-space: pre-line; /* lets a message show the Gujarati and English lines separately */
     }
 
     .loading, .success-screen {
@@ -650,8 +656,18 @@
       <div class="grand-total"><span>Grand Total</span><span id="grandTotal">₹0</span></div>
 
       <div class="field" id="subCenterField" hidden>
-        <label for="fSubCenter">Delivery / Pickup Center</label>
+        <label for="fSubCenter" class="q-label">
+          <span class="q-gu guj">તમે કયા <b>સેન્ટર</b> પરથી કૂપન લેશો?</span>
+          <span class="q-en">Which <b>centre</b> will you collect your coupons from?</span>
+        </label>
         <select id="fSubCenter"></select>
+      </div>
+      <div class="field" id="groupField" hidden>
+        <label for="fGroup" class="q-label">
+          <span class="q-gu guj">તમે કયા <b>ગ્રુપ</b>માંથી કૂપન લેવા માંગો છો?</span>
+          <span class="q-en">Which <b>group</b> would you like to collect your coupons from?</span>
+        </label>
+        <select id="fGroup"></select>
       </div>
       <div class="field">
         <label for="fName">Your Name</label>
@@ -711,6 +727,19 @@
   var currentEditToken = null;
   var SUB_CENTERS = [];
 
+  // Group choices for coupon collection, asked together with the pickup centre. Edit this list to change the options.
+  var PICKUP_GROUPS = ['WMHT', 'MMHT', 'General Centre', 'GNC', 'Other'];
+  // The centre and the group are saved together in the existing "Sub Center" column
+  // of the orders sheet, e.g. "Sola | WMHT" (split it later with =SPLIT(H2, " | ")).
+  var CENTRE_GROUP_SEPARATOR = ' | ';
+  function splitCentreAndGroup(value) {
+    var v = String(value || '');
+    var i = v.lastIndexOf(CENTRE_GROUP_SEPARATOR);
+    if (i === -1) return { centre: v, group: '' };
+    var group = v.slice(i + CENTRE_GROUP_SEPARATOR.length);
+    return { centre: v.slice(0, i), group: PICKUP_GROUPS.indexOf(group) !== -1 ? group : '' };
+  }
+
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -760,11 +789,17 @@
   function setupSubCenterField() {
     if (!SUB_CENTERS || SUB_CENTERS.length === 0) return;
     var select = document.getElementById('fSubCenter');
-    var options = ['<option value="">Select…</option>'].concat(
+    var options = ['<option value="">પસંદ કરો… / Select…</option>'].concat(
       SUB_CENTERS.map(function (c) { return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; })
     );
     select.innerHTML = options.join('');
     document.getElementById('subCenterField').hidden = false;
+
+    var groupSelect = document.getElementById('fGroup');
+    groupSelect.innerHTML = ['<option value="">પસંદ કરો… / Select…</option>'].concat(
+      PICKUP_GROUPS.map(function (g) { return '<option value="' + escapeHtml(g) + '">' + escapeHtml(g) + '</option>'; })
+    ).join('');
+    document.getElementById('groupField').hidden = false;
   }
 
   function placeholderIcon() {
@@ -1217,9 +1252,13 @@
     var name = document.getElementById('fName').value.trim();
     var email = document.getElementById('fEmail').value.trim();
     var whatsapp = document.getElementById('fWhatsapp').value.trim();
-    var subCenter = (SUB_CENTERS && SUB_CENTERS.length > 0) ? document.getElementById('fSubCenter').value : '';
+    var hasCentres = !!(SUB_CENTERS && SUB_CENTERS.length > 0);
+    var centre = hasCentres ? document.getElementById('fSubCenter').value : '';
+    var group = hasCentres ? document.getElementById('fGroup').value : '';
 
-    if (SUB_CENTERS && SUB_CENTERS.length > 0 && !subCenter) { showError('Please select your delivery/pickup center.'); return; }
+    if (hasCentres && !centre) { showError('કૃપા કરીને જે સેન્ટર પરથી કૂપન લેશો તે પસંદ કરો.\nPlease select the centre you will collect your coupons from.'); return; }
+    if (hasCentres && !group) { showError('કૃપા કરીને જે ગ્રુપમાંથી કૂપન લેવા માંગો છો તે પસંદ કરો.\nPlease select the group you will collect your coupons from.'); return; }
+    var subCenter = hasCentres ? (centre + CENTRE_GROUP_SEPARATOR + group) : '';
     if (!name) { showError('Please enter your name.'); return; }
     if (!email || email.indexOf('@') === -1) { showError('Please enter a valid email address.'); return; }
     if (!validateIndianWhatsApp(whatsapp).valid) { showError(validateIndianWhatsApp(whatsapp).message); isCheckoutWhatsAppValid(); return; }
@@ -1315,7 +1354,9 @@
     document.getElementById('fWhatsapp').value = order.whatsapp || '';
     isCheckoutWhatsAppValid();
     if (SUB_CENTERS && SUB_CENTERS.length > 0) {
-      document.getElementById('fSubCenter').value = order.subCenter || '';
+      var parts = splitCentreAndGroup(order.subCenter);
+      document.getElementById('fSubCenter').value = parts.centre;
+      document.getElementById('fGroup').value = parts.group;
     }
     currentEditToken = order.editToken;
     isEditMode = true;
