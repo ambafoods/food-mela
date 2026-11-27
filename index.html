@@ -559,6 +559,11 @@
       background: #fff;
     }
     .field input:focus, .field select:focus { outline: none; border-color: var(--primary); }
+    /* Pickup confirmation note shown under the centre + group dropdowns. */
+    .pickup-note { margin-top: 14px; padding: 10px 12px; background: var(--primary-light); border: 1px solid var(--primary-border); border-radius: 8px; }
+    .pickup-note .pn-gu { display: block; font-size: 14px; font-weight: 600; line-height: 1.5; color: var(--primary-dark); }
+    .pickup-note .pn-en { display: block; font-size: 13px; line-height: 1.45; color: var(--muted); margin-top: 4px; }
+    .pickup-note b { font-weight: 800; }
     /* Bilingual questions: Gujarati line on top, English below; the key word is bold. */
     .field label.q-label { font-size: 15px; font-weight: 400; line-height: 1.45; }
     .q-label .q-gu { display: block; }
@@ -669,6 +674,7 @@
         </label>
         <select id="fGroup"></select>
       </div>
+      <div class="pickup-note" id="pickupNote" aria-live="polite" hidden></div>
       <div class="field">
         <label for="fName">Your Name</label>
         <input id="fName" type="text" autocomplete="name" placeholder="e.g. Chandubhai Patel">
@@ -727,17 +733,73 @@
   var currentEditToken = null;
   var SUB_CENTERS = [];
 
-  // Group choices for coupon collection, asked together with the pickup centre. Edit this list to change the options.
-  var PICKUP_GROUPS = ['WMHT', 'MMHT', 'General Centre', 'GNC', 'Other'];
-  // The centre and the group are saved together in the existing "Sub Center" column
-  // of the orders sheet, e.g. "Sola | WMHT" (split it later with =SPLIT(H2, " | ")).
+  // ---- Pickup centre + group -------------------------------------------------
+  // Group choices for coupon collection, asked together with the pickup centre.
+  // Edit this list to change the options. The default one is pre-selected.
+  var PICKUP_GROUPS = ['WMHT Centre', 'General Centre', 'Other'];
+  var DEFAULT_PICKUP_GROUP = 'Other';
+  // How a group is named inside the sentence "…the <name> Coordinator of <centre> Center".
+  var NOTE_GROUP_LABEL = { 'WMHT Centre': 'WMHT', 'General Centre': 'General' };
+  // Centre entry (as written in the Admin centre list) that means "no centre near me".
+  var NO_CENTRE_OPTION = 'OTHER AREA /NO CENTRE';
+  // Customers with no centre, or with group "Other", collect their coupons here.
+  var HEADQUARTERS_PICKUP = 'Usmanpura, Dada Darshan';
+  var HEADQUARTERS_PICKUP_GU = 'ઉસ્માનપુરા, દાદા દર્શન';
+  // A normal choice is saved together in the existing "Sub Center" column of the
+  // orders sheet, e.g. "Sola | WMHT Centre" (split it with =SPLIT(H2, " | ")).
   var CENTRE_GROUP_SEPARATOR = ' | ';
+
+  function normaliseText(v) { return String(v || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+  function isHeadquartersCase(centre, group) {
+    return normaliseText(centre) === normaliseText(NO_CENTRE_OPTION) || group === 'Other';
+  }
+
+  // What the customer's two answers mean: null until a centre is chosen, otherwise
+  // either {headquarters:true} or {centre, group}.
+  function resolvePickup(centre, group) {
+    if (!centre) return null;
+    if (isHeadquartersCase(centre, group)) return { headquarters: true };
+    return { headquarters: false, centre: centre, group: group };
+  }
+  // The text saved in the sheet (and printed on the invoice as "Pickup Centre").
+  function pickupValueToSave(centre, group) {
+    var r = resolvePickup(centre, group);
+    if (!r) return '';
+    return r.headquarters ? HEADQUARTERS_PICKUP : (centre + CENTRE_GROUP_SEPARATOR + group);
+  }
+  // Reads a saved value back into the two dropdowns when an order is edited.
   function splitCentreAndGroup(value) {
-    var v = String(value || '');
+    var v = String(value || '').trim();
+    // "Usmanpura, Dada Darshan" does not record which centre/group was picked,
+    // so the customer re-selects the centre; the group stays on its default.
+    if (v === HEADQUARTERS_PICKUP) return { centre: '', group: DEFAULT_PICKUP_GROUP };
     var i = v.lastIndexOf(CENTRE_GROUP_SEPARATOR);
-    if (i === -1) return { centre: v, group: '' };
+    if (i === -1) return { centre: v, group: DEFAULT_PICKUP_GROUP };
     var group = v.slice(i + CENTRE_GROUP_SEPARATOR.length);
-    return { centre: v.slice(0, i), group: PICKUP_GROUPS.indexOf(group) !== -1 ? group : '' };
+    return { centre: v.slice(0, i), group: PICKUP_GROUPS.indexOf(group) !== -1 ? group : DEFAULT_PICKUP_GROUP };
+  }
+  function hasCentreWord(name) { return /cent(er|re)|સેન્ટર|કેન્દ્ર/i.test(name); }
+
+  function updatePickupNote() {
+    var note = document.getElementById('pickupNote');
+    if (!SUB_CENTERS || SUB_CENTERS.length === 0) { note.hidden = true; return; }
+    var centre = document.getElementById('fSubCenter').value;
+    var group = document.getElementById('fGroup').value;
+    var r = resolvePickup(centre, group);
+    if (!r) { note.innerHTML = ''; note.hidden = true; return; }
+    if (r.headquarters) {
+      note.innerHTML =
+        '<span class="pn-gu guj">તમારે કૂપન <b>' + escapeHtml(HEADQUARTERS_PICKUP_GU) + '</b> ખાતેથી લેવાના રહેશે.</span>' +
+        '<span class="pn-en">You will have to collect your coupons from <b>' + escapeHtml(HEADQUARTERS_PICKUP) + '</b>.</span>';
+    } else {
+      var label = NOTE_GROUP_LABEL[r.group] || r.group;
+      var centreGu = hasCentreWord(r.centre) ? r.centre : r.centre + ' સેન્ટર';
+      var centreEn = hasCentreWord(r.centre) ? r.centre : r.centre + ' Center';
+      note.innerHTML =
+        '<span class="pn-gu guj">તમારી પસંદગી મુજબ તમારે કૂપન <b>' + escapeHtml(centreGu) + 'ના ' + escapeHtml(label) + ' કોઓર્ડિનેટર</b> પાસેથી લેવાના રહેશે.</span>' +
+        '<span class="pn-en">As per your selection, you will have to collect your coupons from the <b>' + escapeHtml(label) + ' Coordinator of ' + escapeHtml(centreEn) + '</b>.</span>';
+    }
+    note.hidden = false;
   }
 
   function escapeHtml(s) {
@@ -796,10 +858,15 @@
     document.getElementById('subCenterField').hidden = false;
 
     var groupSelect = document.getElementById('fGroup');
-    groupSelect.innerHTML = ['<option value="">પસંદ કરો… / Select…</option>'].concat(
-      PICKUP_GROUPS.map(function (g) { return '<option value="' + escapeHtml(g) + '">' + escapeHtml(g) + '</option>'; })
-    ).join('');
+    groupSelect.innerHTML = PICKUP_GROUPS.map(function (g) {
+      return '<option value="' + escapeHtml(g) + '">' + escapeHtml(g) + '</option>';
+    }).join('');
+    groupSelect.value = DEFAULT_PICKUP_GROUP;
     document.getElementById('groupField').hidden = false;
+
+    select.addEventListener('change', updatePickupNote);
+    groupSelect.addEventListener('change', updatePickupNote);
+    updatePickupNote();
   }
   function placeholderIcon() {
     return '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8 2 5 5 5 9c0 3 2 5.5 5 6.6V21h4v-5.4c3-1.1 5-3.6 5-6.6 0-4-3-7-7-7zm0 2c2.8 0 5 2.2 5 5s-2.2 5-5 5-5-2.2-5-5 2.2-5 5-5z"/></svg>';
@@ -1257,7 +1324,7 @@
 
     if (hasCentres && !centre) { showError('કૃપા કરીને જે સેન્ટર પરથી કૂપન લેશો તે પસંદ કરો.\nPlease select the centre you will collect your coupons from.'); return; }
     if (hasCentres && !group) { showError('કૃપા કરીને જે ગ્રુપમાંથી કૂપન લેવા માંગો છો તે પસંદ કરો.\nPlease select the group you will collect your coupons from.'); return; }
-    var subCenter = hasCentres ? (centre + CENTRE_GROUP_SEPARATOR + group) : '';
+    var subCenter = hasCentres ? pickupValueToSave(centre, group) : '';
     if (!name) { showError('Please enter your name.'); return; }
     if (!email || email.indexOf('@') === -1) { showError('Please enter a valid email address.'); return; }
     if (!validateIndianWhatsApp(whatsapp).valid) { showError(validateIndianWhatsApp(whatsapp).message); isCheckoutWhatsAppValid(); return; }
@@ -1356,6 +1423,7 @@
       var parts = splitCentreAndGroup(order.subCenter);
       document.getElementById('fSubCenter').value = parts.centre;
       document.getElementById('fGroup').value = parts.group;
+      updatePickupNote();
     }
     currentEditToken = order.editToken;
     isEditMode = true;
