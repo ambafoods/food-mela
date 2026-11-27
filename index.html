@@ -559,25 +559,6 @@
       background: #fff;
     }
     .field input:focus, .field select:focus { outline: none; border-color: var(--primary); }
-    /* Group question: big tappable radio buttons (one choice), two per row. */
-    .radio-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .field label.radio-pill { position: relative; display: block; margin: 0; font-size: 15px; font-weight: 700; cursor: pointer; }
-    .field .radio-pill input {
-      position: absolute; opacity: 0; width: 1px; height: 1px; padding: 0; border: 0; margin: 0;
-    }
-    .radio-pill span {
-      display: flex; align-items: center; justify-content: center; text-align: center;
-      min-height: 48px; padding: 10px 12px;
-      background: #fff; color: var(--text);
-      border: 1.5px solid var(--border); border-radius: 10px;
-      transition: all 0.15s ease;
-    }
-    .radio-pill input:checked + span {
-      background: var(--primary-light); border-color: var(--primary);
-      box-shadow: 0 0 0 1px var(--primary); color: var(--primary-dark); font-weight: 800;
-    }
-    .radio-pill input:checked + span::before { content: '✓'; margin-right: 6px; font-weight: 800; }
-    .radio-pill input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
     /* Bilingual questions: Gujarati line on top, English below; the key word is bold. */
     .field label.q-label { font-size: 15px; font-weight: 400; line-height: 1.45; }
     .q-label .q-gu { display: block; }
@@ -682,11 +663,11 @@
         <select id="fSubCenter"></select>
       </div>
       <div class="field" id="groupField" hidden>
-        <label id="fGroupLabel" class="q-label">
+        <label for="fGroup" class="q-label">
           <span class="q-gu guj">તમે કયા <b>ગ્રુપ</b>માંથી કૂપન લેવા માંગો છો?</span>
           <span class="q-en">Which <b>group</b> would you like to collect your coupons from?</span>
         </label>
-        <div id="fGroup" class="radio-group" role="radiogroup" aria-labelledby="fGroupLabel"></div>
+        <select id="fGroup"></select>
       </div>
       <div class="field">
         <label for="fName">Your Name</label>
@@ -814,24 +795,12 @@
     select.innerHTML = options.join('');
     document.getElementById('subCenterField').hidden = false;
 
-    document.getElementById('fGroup').innerHTML = PICKUP_GROUPS.map(function (g) {
-      return '<label class="radio-pill"><input type="radio" name="pickupGroup" value="' + escapeHtml(g) + '">' +
-             '<span>' + escapeHtml(g) + '</span></label>';
-    }).join('');
+    var groupSelect = document.getElementById('fGroup');
+    groupSelect.innerHTML = ['<option value="">પસંદ કરો… / Select…</option>'].concat(
+      PICKUP_GROUPS.map(function (g) { return '<option value="' + escapeHtml(g) + '">' + escapeHtml(g) + '</option>'; })
+    ).join('');
     document.getElementById('groupField').hidden = false;
   }
-
-  // The group is a set of radio buttons: read / set the selected one.
-  function getGroupValue() {
-    var inputs = document.getElementById('fGroup').querySelectorAll('input[name="pickupGroup"]');
-    for (var i = 0; i < inputs.length; i++) if (inputs[i].checked) return inputs[i].value;
-    return '';
-  }
-  function setGroupValue(value) {
-    var inputs = document.getElementById('fGroup').querySelectorAll('input[name="pickupGroup"]');
-    for (var i = 0; i < inputs.length; i++) inputs[i].checked = !!value && inputs[i].value === value;
-  }
-
   function placeholderIcon() {
     return '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8 2 5 5 5 9c0 3 2 5.5 5 6.6V21h4v-5.4c3-1.1 5-3.6 5-6.6 0-4-3-7-7-7zm0 2c2.8 0 5 2.2 5 5s-2.2 5-5 5-5-2.2-5-5 2.2-5 5-5z"/></svg>';
   }
@@ -1284,7 +1253,7 @@
     var whatsapp = document.getElementById('fWhatsapp').value.trim();
     var hasCentres = !!(SUB_CENTERS && SUB_CENTERS.length > 0);
     var centre = hasCentres ? document.getElementById('fSubCenter').value : '';
-    var group = hasCentres ? getGroupValue() : '';
+    var group = hasCentres ? document.getElementById('fGroup').value : '';
 
     if (hasCentres && !centre) { showError('કૃપા કરીને જે સેન્ટર પરથી કૂપન લેશો તે પસંદ કરો.\nPlease select the centre you will collect your coupons from.'); return; }
     if (hasCentres && !group) { showError('કૃપા કરીને જે ગ્રુપમાંથી કૂપન લેવા માંગો છો તે પસંદ કરો.\nPlease select the group you will collect your coupons from.'); return; }
@@ -1386,7 +1355,7 @@
     if (SUB_CENTERS && SUB_CENTERS.length > 0) {
       var parts = splitCentreAndGroup(order.subCenter);
       document.getElementById('fSubCenter').value = parts.centre;
-      setGroupValue(parts.group);
+      document.getElementById('fGroup').value = parts.group;
     }
     currentEditToken = order.editToken;
     isEditMode = true;
