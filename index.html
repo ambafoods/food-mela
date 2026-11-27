@@ -735,9 +735,10 @@
 
   // ---- Pickup centre + group -------------------------------------------------
   // Group choices for coupon collection, asked together with the pickup centre.
-  // Edit this list to change the options. The default one is pre-selected.
-  var PICKUP_GROUPS = ['WMHT Centre', 'General Centre', 'Other'];
-  var DEFAULT_PICKUP_GROUP = 'Other';
+  // The group stays unselected until the customer chooses one, except for the no-centre option.
+  var PICKUP_GROUPS = ['WMHT Centre', 'General Centre', 'Others - Usmanpura, Dada Darshan'];
+  var DEFAULT_PICKUP_GROUP = '';
+  var HEADQUARTERS_GROUP = 'Others - Usmanpura, Dada Darshan';
   // How a group is named inside the sentence "…the <name> Coordinator of <centre> Center".
   var NOTE_GROUP_LABEL = { 'WMHT Centre': 'WMHT', 'General Centre': 'General Centre' };
   // Centre entry (as written in the Admin centre list) that means "no centre near me".
@@ -751,7 +752,11 @@
 
   function normaliseText(v) { return String(v || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
   function isHeadquartersCase(centre, group) {
-    return normaliseText(centre) === normaliseText(NO_CENTRE_OPTION) || group === 'Other';
+    return normaliseText(centre) === normaliseText(NO_CENTRE_OPTION) ||
+      normaliseText(group) === normaliseText(HEADQUARTERS_GROUP) || normaliseText(group) === 'other';
+  }
+  function isOtherCentreChoice(centre) {
+    return normaliseText(centre) === normaliseText(NO_CENTRE_OPTION);
   }
 
   // What the customer's two answers mean: null until a centre is chosen, otherwise
@@ -771,11 +776,13 @@
   function splitCentreAndGroup(value) {
     var v = String(value || '').trim();
     // "Usmanpura, Dada Darshan" does not record which centre/group was picked,
-    // so the customer re-selects the centre; the group stays on its default.
+    // so the customer re-selects the centre; the group remains unselected.
     if (v === HEADQUARTERS_PICKUP) return { centre: '', group: DEFAULT_PICKUP_GROUP };
     var i = v.lastIndexOf(CENTRE_GROUP_SEPARATOR);
     if (i === -1) return { centre: v, group: DEFAULT_PICKUP_GROUP };
     var group = v.slice(i + CENTRE_GROUP_SEPARATOR.length);
+    // Keep compatibility with orders saved before the group option was renamed.
+    if (normaliseText(group) === 'other') group = HEADQUARTERS_GROUP;
     return { centre: v.slice(0, i), group: PICKUP_GROUPS.indexOf(group) !== -1 ? group : DEFAULT_PICKUP_GROUP };
   }
   function hasCentreWord(name) { return /cent(er|re)|સેન્ટર|કેન્દ્ર/i.test(name); }
@@ -858,13 +865,22 @@
     document.getElementById('subCenterField').hidden = false;
 
     var groupSelect = document.getElementById('fGroup');
-    groupSelect.innerHTML = PICKUP_GROUPS.map(function (g) {
-      return '<option value="' + escapeHtml(g) + '">' + escapeHtml(g) + '</option>';
-    }).join('');
+    groupSelect.innerHTML = ['<option value="">પસંદ કરો… / Select…</option>'].concat(
+      PICKUP_GROUPS.map(function (g) {
+        return '<option value="' + escapeHtml(g) + '">' + escapeHtml(g) + '</option>';
+      })
+    ).join('');
     groupSelect.value = DEFAULT_PICKUP_GROUP;
     document.getElementById('groupField').hidden = false;
 
-    select.addEventListener('change', updatePickupNote);
+    select.addEventListener('change', function () {
+      if (isOtherCentreChoice(select.value)) {
+        groupSelect.value = HEADQUARTERS_GROUP;
+      } else if (groupSelect.value === HEADQUARTERS_GROUP) {
+        groupSelect.value = DEFAULT_PICKUP_GROUP;
+      }
+      updatePickupNote();
+    });
     groupSelect.addEventListener('change', updatePickupNote);
     updatePickupNote();
   }
